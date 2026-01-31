@@ -1,13 +1,18 @@
 import os
 import time
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 def run_scraper():
     print("[*] Initializing WebDriver...")
     
     options = Options()
-    options.add_argument("--headless")
+    # options.add_argument("--headless") # Commented out for visual debugging
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
@@ -32,19 +37,133 @@ def run_scraper():
         return
 
     try:
-        print("[*] Navigating to LinkedIn...")
-        driver.get("https://www.linkedin.com")
+        # Search parameters
+        job_title = "Software Engineer"
+        location = "New York"
+        url = f"https://www.linkedin.com/jobs/search?keywords={job_title.replace(' ', '%20')}&location={location.replace(' ', '%20')}"
         
-        print(f"[+] Page title: {driver.title}")
+        print(f"[*] Navigating to: {url}")
+        driver.get(url)
+
+        # Initial wait for page load
+        print("[*] Waiting 5s for initial page load...")
+        time.sleep(5)
+
+        # 1. CLICK USER SPECIFIED BUTTON (Contextual Sign-in Modal)
+        try:
+            print("[*] Looking for contextual sign-in modal button...")
+            sign_in_modal_btn = driver.find_element(By.XPATH, '//*[@id="base-contextual-sign-in-modal"]/div/section/button')
+            
+            if sign_in_modal_btn.is_displayed():
+                print("[*] Moving mouse to button and clicking...")
+                actions = ActionChains(driver)
+                actions.move_to_element(sign_in_modal_btn).click().perform()
+                time.sleep(3)
+            else:
+                print("[*] Button found but not displayed.")
+        except Exception as e:
+            print(f"[*] Specific modal button trigger failed: {e}")
+
+        # 2. CLICK FIRST JOB LISTING (Bypass Trigger)
+        try:
+            print("[*] Clicking first job listing to trigger bypass...")
+            # Find first job card link
+            first_job_link = driver.find_element(By.CSS_SELECTOR, "ul.jobs-search__results-list > li a.base-card__full-link")
+            first_job_link.click()
+            
+            print("[*] Waiting 10s for job page to load...")
+            time.sleep(10)
+            
+            print("[*] Going back...")
+            driver.back()
+            
+            print("[*] Waiting 5s for search page to reload...")
+            time.sleep(5)
+        except Exception as e:
+             print(f"[*] First job click failed: {e}")
+
+        print("[*] Starting Full Page Scroll & Scrape Loop...")
+        jobs_data = []
+        seen_links = set()
+        last_height = driver.execute_script("return document.body.scrollHeight")
         
-        print("[*] Waiting 3 seconds...")
-        time.sleep(3)
+        while True:
+            # Full Page Scroll
+            print("[*] Scrolling to bottom...")
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(5) # Wait for load
+            
+            # Scrape visible jobs immediately
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "ul.jobs-search__results-list > li")
+            for card in job_cards:
+                try:
+                    link_el = card.find_element(By.CSS_SELECTOR, "a.base-card__full-link")
+                    link = link_el.get_attribute("href")
+                    
+                    if link not in seen_links:
+                        title = card.find_element(By.CSS_SELECTOR, "h3.base-search-card__title").text.strip()
+                        company = card.find_element(By.CSS_SELECTOR, "h4.base-search-card__subtitle").text.strip()
+                        loc = card.find_element(By.CSS_SELECTOR, "span.job-search-card__location").text.strip()
+                        
+                        jobs_data.append({
+                            "Title": title,
+                            "Company": company,
+                            "Location": loc,
+                            "Link": link
+                        })
+                        seen_links.add(link)
+                except:
+                    continue
+            
+            print(f"[*] Collected {len(jobs_data)} unique jobs so far...")
+            
+            # Check EOF
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                print("[*] Hit bottom. Waiting 10s to see if more loads...")
+                time.sleep(10)
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    print("[!] Truly reached end of page.")
+                    break
+            last_height = new_height
+            
+            # Keep the "See more" button click just in case
+            try:
+                btn = driver.find_element(By.CSS_SELECTOR, "button.infinite-scroller__show-more-button")
+                if btn.is_displayed():
+                    print("[*] Clicking 'See more' button...")
+                    actions = ActionChains(driver)
+                    actions.move_to_element(btn).click().perform()
+                    time.sleep(5)
+            except:
+                pass
+
+        print(f"[*] Finished. Total unique jobs: {len(jobs_data)}")
+        
+        # Create DataFrame
+        df = pd.DataFrame(jobs_data)
+        
+        if len(df) < 100:
+             print("[!] Warning: Could not scrape 100 jobs. Saving screenshot for debug...")
+             driver.save_screenshot("debug_screenshot.png")
+             with open("debug_page_source.html", "w") as f:
+                 f.write(driver.page_source)
+
+        print("\n" + "="*50)
+        print(f"[*] Successfully Scraped {len(df)} Jobs")
+        print("="*50)
+        print(df.head(10))
+        print("="*50)
         
         driver.quit()
         print("[*] Done.")
         
     except Exception as e:
         print(f"[!] Error: {e}")
+        if driver:
+            driver.save_screenshot("error_screenshot.png")
+            driver.quit()
 
 if __name__ == "__main__":
     run_scraper()
