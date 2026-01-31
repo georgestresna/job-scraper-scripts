@@ -27,6 +27,7 @@ def run_scraper():
     for i in range(30):
         try:
             driver = webdriver.Remote(command_executor=selenium_url, options=options)
+            # wait = WebDriverWait(driver, 20)
             break
         except Exception:
             print(f"[*] Waiting for Selenium (attempt {i+1}/30)...")
@@ -49,7 +50,8 @@ def run_scraper():
         print("[*] Waiting 5s for initial page load...")
         time.sleep(5)
 
-        # 1. CLICK USER SPECIFIED BUTTON (Contextual Sign-in Modal)
+
+        # 1. Handle Sign-in Modal
         try:
             print("[*] Looking for contextual sign-in modal button...")
             sign_in_modal_btn = driver.find_element(By.XPATH, '//*[@id="base-contextual-sign-in-modal"]/div/section/button')
@@ -61,13 +63,14 @@ def run_scraper():
                 time.sleep(3)
             else:
                 print("[*] Button found but not displayed.")
-        except Exception as e:
-            print(f"[*] Specific modal button trigger failed: {e}")
+        except Exception:
+            print("[*] Contextual modal not present.")
+
 
         # 2. CLICK FIRST JOB LISTING (Bypass Trigger)
+        # 2. Click First Job (Bypass Trigger)
         try:
             print("[*] Clicking first job listing to trigger bypass...")
-            # Find first job card link
             first_job_link = driver.find_element(By.CSS_SELECTOR, "ul.jobs-search__results-list > li a.base-card__full-link")
             first_job_link.click()
             
@@ -92,6 +95,7 @@ def run_scraper():
             print("[*] Scrolling to bottom...")
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(5) # Wait for load
+
             
             # Scrape visible jobs immediately
             job_cards = driver.find_elements(By.CSS_SELECTOR, "ul.jobs-search__results-list > li")
@@ -116,6 +120,10 @@ def run_scraper():
                     continue
             
             print(f"[*] Collected {len(jobs_data)} unique jobs so far...")
+
+            if len(jobs_data) >= 200:
+                print("[*] Reached target of 200 listings. Stopping.")
+                break
             
             # Check EOF
             new_height = driver.execute_script("return document.body.scrollHeight")
@@ -128,7 +136,7 @@ def run_scraper():
                     break
             last_height = new_height
             
-            # Keep the "See more" button click just in case
+            # Check for "See more" button
             try:
                 btn = driver.find_element(By.CSS_SELECTOR, "button.infinite-scroller__show-more-button")
                 if btn.is_displayed():
@@ -139,30 +147,30 @@ def run_scraper():
             except:
                 pass
 
+
+
         print(f"[*] Finished. Total unique jobs: {len(jobs_data)}")
         
         # Create DataFrame
         df = pd.DataFrame(jobs_data)
         
-        if len(df) < 100:
-             print("[!] Warning: Could not scrape 100 jobs. Saving screenshot for debug...")
-             driver.save_screenshot("debug_screenshot.png")
-             with open("debug_page_source.html", "w") as f:
-                 f.write(driver.page_source)
+        # Save to CSV
+        csv_file = "jobs.csv"
+        df.to_csv(csv_file, index=False)
+        print(f"[*] Saved data to {csv_file}")
+        
+
 
         print("\n" + "="*50)
         print(f"[*] Successfully Scraped {len(df)} Jobs")
         print("="*50)
-        print(df.head(10))
-        print("="*50)
         
         driver.quit()
-        print("[*] Done.")
         
     except Exception as e:
         print(f"[!] Error: {e}")
         if driver:
-            driver.save_screenshot("error_screenshot.png")
+
             driver.quit()
 
 if __name__ == "__main__":
