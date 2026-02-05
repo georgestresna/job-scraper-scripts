@@ -7,9 +7,13 @@ services:
     volumes:
       - ./app:/app
     depends_on:
-      - selenium
+      selenium:
+        condition: service_started
+      db:
+        condition: service_healthy
     environment:
       - SELENIUM_URL=http://selenium:4444/wd/hub
+      - DATABASE_URL=postgresql://user:password@db:5432/jobs_db
 
   selenium:
     image: selenium/standalone-chrome:latest
@@ -18,3 +22,23 @@ services:
       - "4444:4444"
       - "7900:7900"
     shm_size: "2gb"
+
+  db:
+    image: postgres:15
+    container_name: jobs_db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=jobs_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d jobs_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

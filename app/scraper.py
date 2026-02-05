@@ -1,14 +1,68 @@
 import os
 import time
-import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from database import init_db, SessionLocal, Job
+from sqlalchemy.exc import IntegrityError
+import requests
+from bs4 import BeautifulSoup
+
+
+def is_in_db(db, job_link):
+    result = db.query(Job).filter(Job.link == job_link).first()
+    return result is not None
+
+def process_job_details(db, job_link):
+    try:
+        response = requests.get(job_link, headers = {'User-agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36'})
+
+        if response.status_code != 200:
+            print(f"[!] Failed to fetch details: Status {response.status_code}")
+            return None
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        #extracting details
+        title = soup.find("h1", class_="top-card-layout__title")
+        title = title.get_text(strip=True) if title else "Unknown Title"
+
+        company = soup.find("a", class_="topcard__org-name-link")
+        company = company.get_text(strip=True) if company else "Unknown Company"
+
+        location = soup.find("span", class_="topcard__flavor topcard__flavor--bullet")
+        location = location.get_text(strip=True) if location else "Unknown Location"
+
+        desc_div = soup.find("div", class_="description__text")
+        description = desc_div.get_text(separator="\n", strip=True) if desc_div else ""
+
+        criteria_items = soup.find_all("li", class_="description__job-criteria-item")
+        seniority = criteria_items[0].find("span").get_text(strip=True) if len(criteria_items) > 0 else "Not Listed"
+        emp_type = criteria_items[1].find("span").get_text(strip=True) if len(criteria_items) > 1 else "Not Listed"
+
+        new_job = Job(
+            title=title,
+            company=company,
+            location=location,
+            description=description,
+            seniority=seniority,
+            employment_type=emp_type,
+            link=job_link,
+        )
+        db.add(new_job)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        print(f"[!] Error processing {job_link}: {e}")
 
 def run_scraper():
+    print("[*] Initializing Database...")
+    init_db()
+    db = SessionLocal()
+
     print("[*] Initializing WebDriver...")
     
     options = Options()
@@ -27,7 +81,6 @@ def run_scraper():
     for i in range(30):
         try:
             driver = webdriver.Remote(command_executor=selenium_url, options=options)
-            # wait = WebDriverWait(driver, 20)
             break
         except Exception:
             print(f"[*] Waiting for Selenium (attempt {i+1}/30)...")
@@ -35,143 +88,113 @@ def run_scraper():
             
     if not driver:
         print("[!] Could not connect to Selenium after 30 seconds.")
+        db.close()
         return
+
+    wait = WebDriverWait(driver, 10)
 
     try:
         # Search parameters
         job_title = "Software Engineer"
         location = "New York"
-        url = f"https://www.linkedin.com/jobs/search?keywords={job_title.replace(' ', '%20')}&location={location.replace(' ', '%20')}"
-        
+        timeframe = 0   #past 24 hours
+        job_type= 0     #full/part
+        experience = 0  #intern/early
+
+        url = (
+            f"https://www.linkedin.com/jobs/search"
+            f"?keywords={job_title.replace(' ', '%20')}"
+            f"&location={location.replace(' ', '%20')}"
+            #f"&f_TPR=r604800"      # Posted in the last week (604800 seconds)
+            #f"&f_E=1,2"               # Experience level: Entry Level + internship
+            #f"&f_E=1"
+            #f"&geoId=105889820"     # Specific ID for Bucharest
+            #f"&distance=25"         # 25km radius
+        )       
+
         print(f"[*] Navigating to: {url}")
         driver.get(url)
 
         # Initial wait for page load
-        print("[*] Waiting 5s for initial page load...")
-        time.sleep(5)
-
-
-        # 1. Handle Sign-in Modal
+        print("[*] Waiting for initial page load...")
         try:
-            print("[*] Looking for contextual sign-in modal button...")
-            sign_in_modal_btn = driver.find_element(By.XPATH, '//*[@id="base-contextual-sign-in-modal"]/div/section/button')
-            
-            if sign_in_modal_btn.is_displayed():
-                print("[*] Moving mouse to button and clicking...")
-                actions = ActionChains(driver)
-                actions.move_to_element(sign_in_modal_btn).click().perform()
-                time.sleep(3)
-            else:
-                print("[*] Button found but not displayed.")
-        except Exception:
-            print("[*] Contextual modal not present.")
+            wait.until(lambda d: d.find_element(By.XPATH, '//*[@id="main-content"]/section[2]/ul/li[1]/div/a').is_displayed())
+        except:
+            print("    [!] Timeout waiting for job list.")
 
-
-        # 2. CLICK FIRST JOB LISTING (Bypass Trigger)
-        # 2. Click First Job (Bypass Trigger)
         try:
-            print("[*] Clicking first job listing to trigger bypass...")
-            first_job_link = driver.find_element(By.CSS_SELECTOR, "ul.jobs-search__results-list > li a.base-card__full-link")
+            driver.find_element(By.XPATH, '//*[@id="base-contextual-sign-in-modal"]/div/section/button').click()
+        except:
+            print("[!] X'd the SignIn wall")
+
+
+        #Bypass antibot
+        try:
+            print("[*] Clicking first job listing...")
+            first_job_link = driver.find_element(By.XPATH, '//*[@id="main-content"]/section[2]/ul/li[1]/div/a')
             first_job_link.click()
             
-            print("[*] Waiting 10s for job page to load...")
-            time.sleep(10)
+            print("[*] Waiting for job page to load...")
+            try:
+                wait.until(lambda d: d.find_element(By.TAG_NAME, "h1").is_displayed())
+            except:
+                print("    [!] Timeout waiting for job details.")
             
             print("[*] Going back...")
             driver.back()
             
-            print("[*] Waiting 5s for search page to reload...")
-            time.sleep(5)
+            print("[*] Waiting for search page to reload...")
+            try:
+                wait.until(lambda d: d.find_element(By.XPATH, '//*[@id="main-content"]/section[2]/ul/li[1]/div/a').is_displayed())
+            except:
+                print("    [!] Timeout waiting for search results.")
         except Exception as e:
              print(f"[*] First job click failed: {e}")
 
-        print("[*] Starting Full Page Scroll & Scrape Loop...")
-        jobs_data = []
-        seen_links = set()
-        last_height = driver.execute_script("return document.body.scrollHeight")
+        ##De aici incepe scrapingul
         
-        while True:
-            # Full Page Scroll
-            print("[*] Scrolling to bottom...")
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(5) # Wait for load
-
-            
-            # Scrape visible jobs immediately
-            job_cards = driver.find_elements(By.CSS_SELECTOR, "ul.jobs-search__results-list > li")
-            for card in job_cards:
-                try:
-                    link_el = card.find_element(By.CSS_SELECTOR, "a.base-card__full-link")
-                    link = link_el.get_attribute("href")
-                    
-                    if link not in seen_links:
-                        title = card.find_element(By.CSS_SELECTOR, "h3.base-search-card__title").text.strip()
-                        company = card.find_element(By.CSS_SELECTOR, "h4.base-search-card__subtitle").text.strip()
-                        loc = card.find_element(By.CSS_SELECTOR, "span.job-search-card__location").text.strip()
-                        
-                        jobs_data.append({
-                            "Title": title,
-                            "Company": company,
-                            "Location": loc,
-                            "Link": link
-                        })
-                        seen_links.add(link)
-                except:
-                    continue
-            
-            print(f"[*] Collected {len(jobs_data)} unique jobs so far...")
-
-            if len(jobs_data) >= 200:
-                print("[*] Reached target of 200 listings. Stopping.")
-                break
-            
-            # Check EOF
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                print("[*] Hit bottom. Waiting 10s to see if more loads...")
-                time.sleep(10)
-                new_height = driver.execute_script("return document.body.scrollHeight")
-                if new_height == last_height:
-                    print("[!] Truly reached end of page.")
-                    break
-            last_height = new_height
-            
-            # Check for "See more" button
+        current = 1
+        while current <= 1:
             try:
-                btn = driver.find_element(By.CSS_SELECTOR, "button.infinite-scroller__show-more-button")
-                if btn.is_displayed():
-                    print("[*] Clicking 'See more' button...")
-                    actions = ActionChains(driver)
-                    actions.move_to_element(btn).click().perform()
-                    time.sleep(5)
-            except:
-                pass
+                locator = (By.XPATH, f'//*[@id="main-content"]/section[2]/ul/li[{current}]/div/a')
+                job_element = wait.until(EC.presence_of_element_located(locator))
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", job_element)
+                job_link = job_element.get_attribute("href").split("?")[0]
 
+                #otherwise, i get bot--blocked
+                time.sleep(0.3)
 
+                if not is_in_db(db, job_link):
+                    process_job_details(db, job_link)
 
-        print(f"[*] Finished. Total unique jobs: {len(jobs_data)}")
-        
-        # Create DataFrame
-        df = pd.DataFrame(jobs_data)
-        
-        # Save to CSV
-        csv_file = "jobs.csv"
-        df.to_csv(csv_file, index=False)
-        print(f"[*] Saved data to {csv_file}")
-        
+                print(f"[*] Job scraped: {job_link}")
+                current += 1
 
+            except Exception:
+                #if no card found
+                try:
+                    print("[*] Card not found. Trying 'See more'...")
+                    btn = driver.find_element(By.XPATH, '//*[@id="main-content"]/section[2]/button')
+                    btn.click()
+                    #time.sleep(0.5)
+                    #NO MORE current+=1, so this step restarts
+                except Exception:
+                    try:
+                        msg = driver.find_element(By.XPATH, '//*[@id="main-content"]/section[2]/div/p').text
+                        if "viewed all jobs" in msg:
+                            print("[!] Reached the very end.")
+                            break
+                    except:
+                        print("[?] Stuck. Exiting...")
+                        break
 
-        print("\n" + "="*50)
-        print(f"[*] Successfully Scraped {len(df)} Jobs")
-        print("="*50)
-        
-        driver.quit()
-        
+        print(f"[*] Finished. Total processed: {current - 1}")
     except Exception as e:
-        print(f"[!] Error: {e}")
+        print(f"[!] Critical Error: {e}")
+    finally:
         if driver:
-
             driver.quit()
+        # db.close()
 
 if __name__ == "__main__":
     run_scraper()

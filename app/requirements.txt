@@ -1,5 +1,10 @@
 selenium
 python-dotenv
+
 sqlalchemy
 psycopg2-binary
+
 pandas
+
+requests
+bs4
