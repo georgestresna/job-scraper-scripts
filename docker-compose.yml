@@ -1,9 +1,25 @@
 version: '3.8'
 
 services:
-  scraper-app:
+  web:
     build: .
-    container_name: job-scraper
+    container_name: scraper-web
+    command: flask --app main run --host=0.0.0.0 --port=8000 --debug
+    volumes:
+      - ./app:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://user:password@db:5432/jobs_db
+
+  worker:
+    build: .
+    container_name: scraper-worker
+    command: celery -A tasks worker --loglevel=info
     volumes:
       - ./app:/app
     depends_on:
@@ -11,9 +27,26 @@ services:
         condition: service_started
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
       - SELENIUM_URL=http://selenium:4444/wd/hub
       - DATABASE_URL=postgresql://user:password@db:5432/jobs_db
+
+  #ceasul
+  beat:
+    build: .
+    container_name: scrapper-bot
+    command: celery -A tasks beat --loglevel=info
+    volumes:
+      - ./app:/app
+    depends_on: 
+      - redis
+
+  redis:
+    image: redis:alpine
+    container_name: scraper-redis
 
   selenium:
     image: selenium/standalone-chrome:latest
@@ -39,6 +72,12 @@ services:
       retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
 
 volumes:
   postgres_data:

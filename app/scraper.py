@@ -58,7 +58,16 @@ def process_job_details(db, job_link):
         db.rollback()
         print(f"[!] Error processing {job_link}: {e}")
 
-def run_scraper():
+def cleanup_expired_jobs():
+    pass
+
+def run_scraper(
+        job_title="Software Engineer", 
+        location="Bucharest", 
+        timeframe="r86400", 
+        experience="1,2"
+    ):
+
     print("[*] Initializing Database...")
     init_db()
     db = SessionLocal()
@@ -94,22 +103,15 @@ def run_scraper():
     wait = WebDriverWait(driver, 10)
 
     try:
-        # Search parameters
-        job_title = "Software Engineer"
-        location = "New York"
-        timeframe = 0   #past 24 hours
-        job_type= 0     #full/part
-        experience = 0  #intern/early
 
         url = (
             f"https://www.linkedin.com/jobs/search"
             f"?keywords={job_title.replace(' ', '%20')}"
             f"&location={location.replace(' ', '%20')}"
-            #f"&f_TPR=r604800"      # Posted in the last week (604800 seconds)
-            #f"&f_E=1,2"               # Experience level: Entry Level + internship
-            #f"&f_E=1"
+            f"&f_TPR={timeframe}"      # Posted in the last week (604800 seconds)
+            f"&f_E={experience}"               # Experience level: Entry Level + internship
             #f"&geoId=105889820"     # Specific ID for Bucharest
-            #f"&distance=25"         # 25km radius
+            f"&distance=25"         # 25km radius
         )       
 
         print(f"[*] Navigating to: {url}")
@@ -154,7 +156,7 @@ def run_scraper():
         ##De aici incepe scrapingul
         
         current = 1
-        while current <= 1:
+        while current <= 3:
             try:
                 locator = (By.XPATH, f'//*[@id="main-content"]/section[2]/ul/li[{current}]/div/a')
                 job_element = wait.until(EC.presence_of_element_located(locator))

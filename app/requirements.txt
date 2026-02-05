@@ -8,3 +8,8 @@ pandas
 
 requests
 bs4
+
+celery
+redis
+flask  
+gunicorn
