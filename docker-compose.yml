@@ -15,6 +15,9 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@db:5432/jobs_db
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PASS=${ADMIN_PASS}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
 
   worker:
     build: .

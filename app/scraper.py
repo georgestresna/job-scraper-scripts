@@ -58,16 +58,7 @@ def process_job_details(db, job_link):
         db.rollback()
         print(f"[!] Error processing {job_link}: {e}")
 
-def cleanup_expired_jobs():
-    pass
-
-def run_scraper(
-        job_title="Software Engineer", 
-        location="Bucharest", 
-        timeframe="r86400", 
-        experience="1,2"
-    ):
-
+def init():
     print("[*] Initializing Database...")
     init_db()
     db = SessionLocal()
@@ -101,6 +92,52 @@ def run_scraper(
         return
 
     wait = WebDriverWait(driver, 10)
+
+    return db, driver, wait
+
+def cleanup_expired_jobs():
+    db, driver, wait = init()
+    jobs = db.query(Job).all()
+
+    for job in jobs:
+        try:
+            driver.get(job.link)
+            time.sleep(2) 
+            
+            page_text = driver.page_source.lower()
+            
+            expired_keywords = [
+                "no longer accepting applications",
+                "this job is closed",
+                "job is no longer available"
+            ]
+
+            # 3. If any keyword is found, delete it
+            if any(keyword in page_text for keyword in expired_keywords):
+                print(f"[!] Deleting expired job: {job.title} at {job.company}")
+                db.delete(job)
+                db.commit()
+            else:
+                print(f"[*] Still Active: {job.title}")
+
+        except Exception as e:
+            print(f"[?] Error checking {job.link}: {e}")
+            continue
+
+    driver.quit()
+    db.close()
+    return "Cleanup Finished"
+
+
+
+def run_scraper(
+        job_title="Software Engineer", 
+        location="Bucharest", 
+        timeframe="r86400", 
+        experience="1,2"
+    ):
+
+    db, driver, wait = init()
 
     try:
 
@@ -156,7 +193,7 @@ def run_scraper(
         ##De aici incepe scrapingul
         
         current = 1
-        while current <= 3:
+        while current <= 200:
             try:
                 locator = (By.XPATH, f'//*[@id="main-content"]/section[2]/ul/li[{current}]/div/a')
                 job_element = wait.until(EC.presence_of_element_located(locator))

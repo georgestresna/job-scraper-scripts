@@ -21,17 +21,18 @@ celery_app.conf.beat_schedule = {
 @celery_app.task(bind=True, priority=9)  # HIGHEST PRIORITY (Admin)
 def admin_scrape_task(self, job_title, location, timeframe):
     print(f"[*] [ADMIN] Starting high priority scrape for: well see")
-    return run_scraper(job_title=job_title, location=location, timeframe=timeframe)
+    run_scraper(job_title=job_title, location=location, timeframe=timeframe)
+    return "Admin search complete"
 
 @celery_app.task(bind=True, priority=5)  # MEDIUM PRIORITY (Scheduled)
 def scheduled_scan_task(self):
-    run_scraper(job_title="Software Engineer", location="Romania")
-    
-    # Step B: Find another category
-    run_scraper(job_title="Data Scientist", location="Romania")
+    run_scraper(job_title="Software Engineer", location="Romania", timeframe="r86400", experience="1,2")
+    run_scraper(job_title="Data Engineer", location="Romania", timeframe="r86400", experience="1,2")
+    run_scraper(job_title="DevOps", location="Romania", timeframe="r86400", experience="1,2")
     cleanup_expired_jobs()
     return "Complete maintenance"
 
+##MOMENTAN NEUTILIZAT
 @celery_app.task(bind=True, priority=1)  # LOW PRIORITY (Viewer)
 def viewer_check_task(self, url):
     print(f"[*] [VIEWER] Queueing low priority check: {url}")

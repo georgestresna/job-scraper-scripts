@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Scraper Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container">
+            <span class="navbar-brand">LinkedIn Scraper Bot</span>
+            <div class="d-flex align-items-center">
+                {% if current_user.is_authenticated %}
+                <span class="text-light me-3 small">Logged in as Admin</span>
+                <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
+                {% else %}
+                <a href="/login" class="btn btn-outline-primary btn-sm">Admin Login</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-info alert-dismissible fade show">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% if current_user.is_authenticated %}
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <form action="/scrape" method="POST" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Job Title</label>
+                        <input type="text" name="title" class="form-control" placeholder="e.g. Java Developer" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Location</label>
+                        <input type="text" name="location" class="form-control" placeholder="e.g. Bucharest" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Timeframe</label>
+                        <select name="timeframe" class="form-select">
+                            <option value="r86400">Past 24 Hours</option>
+                            <option value="r604800">Past Week</option>
+                            <option value="r2592000">Past Month</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">Run Scraper</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card mb-4 border-0 shadow-sm">
+            <div class="card-body bg-white">
+                <form method="GET" action="/" class="row g-2">
+                    <div class="col-md-4">
+                        <input type="text" name="search" class="form-control" placeholder="Search title or description..."
+                            value="{{ request.args.get('search', '') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <select name="loc_filter" class="form-select">
+                            <option value="">All Locations</option>
+                            <option value="bucharest" {{ 'selected' if request.args.get('loc_filter')=='bucharest' }}>Bucharest
+                            </option>
+                            <option value="not_bucharest" {{ 'selected' if request.args.get('loc_filter')=='not_bucharest' }}>
+                                Outside Bucharest</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select name="level_filter" class="form-select">
+                            <option value="">Any Level</option>
+                            <option value="internship" {{ 'selected' if request.args.get('level_filter')=='internship' }}>
+                                Internship</option>
+                            <option value="junior" {{ 'selected' if request.args.get('level_filter')=='junior' }}>Junior
+                            </option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex gap-2">
+                        <button type="submit" class="btn btn-dark flex-grow-1">Filter</button>
+                        <a href="/" class="btn btn-outline-secondary">Reset</a>
+                        <a href="{{ url_for('export_csv', **request.args) }}" class="btn btn-success">Download CSV</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Found Listings</h5>
+                <div>
+                    {% if queue_count > 0 %}
+                    <span class="badge bg-warning text-dark">Worker Busy ({{ queue_count }} in queue)</span>
+                    {% else %}
+                    <span class="badge bg-success">Worker Idle</span>
+                    {% endif %}
+                    <span class="badge bg-secondary ms-2">{{ jobs|length }} Total</span>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Job Title</th>
+                            <th>Company</th>
+                            <th>Location</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in jobs %}
+                        <tr>
+                            <td>{{ job.title }}</td>
+                            <td>{{ job.company }}</td>
+                            <td>{{ job.location }}</td>
+                            <td>
+                                <a href="{{ job.link }}" target="_blank"
+                                    class="btn btn-sm btn-link text-decoration-none">Open LinkedIn ↗</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
